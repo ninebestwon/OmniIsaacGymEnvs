@@ -39,7 +39,7 @@ class FrankaValveTask(RLTask):
         env,
         offset=None
     ) -> None:
-        
+
         self.update_config(sim_config)
 
         self.distX_offset = 0.04
@@ -54,6 +54,9 @@ class FrankaValveTask(RLTask):
         return
 
     def update_config(self, sim_config):
+        """
+        utility method for parsing the sim_config object
+        """
         # extract task config from main config dictionary
         self._sim_config = sim_config
         self._cfg = sim_config.config
@@ -73,6 +76,7 @@ class FrankaValveTask(RLTask):
         self.start_rotation_noise = self._task_cfg["env"]["startRotationNoise"]
         self.num_props = self._task_cfg["env"]["numProps"]
 
+        # reward scale
         self.dof_vel_scale = self._task_cfg["env"]["dofVelocityScale"]
         self.dist_reward_scale = self._task_cfg["env"]["distRewardScale"]
         self.rot_reward_scale = self._task_cfg["env"]["rotRewardScale"]
@@ -115,7 +119,7 @@ class FrankaValveTask(RLTask):
 
         # construct an ValveView to hold our collection of environments
         self._valves = ValveView(
-            prim_paths_expr="/World/envs/.*/valve", 
+            prim_paths_expr="/World/envs/.*/valve",
             name="valve_view"
         )
         # register the ValveView object to the world, so that it can be initialized
@@ -133,8 +137,8 @@ class FrankaValveTask(RLTask):
         )
         # applies articulation settings from the task configuration yaml file
         self._sim_config.apply_articulation_settings(
-            "table", 
-            get_prim_at_path(table.prim_path), 
+            "table",
+            get_prim_at_path(table.prim_path),
             self._sim_config.parse_actor_config("table")
         )
 

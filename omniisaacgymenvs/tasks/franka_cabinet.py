@@ -27,33 +27,48 @@ from pxr import Usd, UsdGeom
 
 
 class FrankaCabinetTask(RLTask):
-    def __init__(self, name, sim_config, env, offset=None) -> None:
+    def __init__(
+        self,
+        name,
+        sim_config,
+        env,
+        offset=None
+    ) -> None:
+
         self.update_config(sim_config)
 
         self.distX_offset = 0.04
         self.dt = 1 / 60.0
 
+        # these must be defined in the task class
         self._num_observations = 23
         self._num_actions = 9
 
+        # call the parent class constructor to initialize key RL variables
         RLTask.__init__(self, name, env)
         return
 
     def update_config(self, sim_config):
+        # extract task config from main config dictionary
         self._sim_config = sim_config
         self._cfg = sim_config.config
         self._task_cfg = sim_config.task_config
 
+        # parse task config parameters
         self._num_envs = self._task_cfg["env"]["numEnvs"]
         self._env_spacing = self._task_cfg["env"]["envSpacing"]
 
         self._max_episode_length = self._task_cfg["env"]["episodeLength"]
 
+        """
+        Franka_Cabinet Config
+        """
         self.action_scale = self._task_cfg["env"]["actionScale"]
         self.start_position_noise = self._task_cfg["env"]["startPositionNoise"]
         self.start_rotation_noise = self._task_cfg["env"]["startRotationNoise"]
         self.num_props = self._task_cfg["env"]["numProps"]
 
+        # reward scale
         self.dof_vel_scale = self._task_cfg["env"]["dofVelocityScale"]
         self.dist_reward_scale = self._task_cfg["env"]["distRewardScale"]
         self.rot_reward_scale = self._task_cfg["env"]["rotRewardScale"]
@@ -64,76 +79,78 @@ class FrankaCabinetTask(RLTask):
         self.finger_close_reward_scale = self._task_cfg["env"]["fingerCloseRewardScale"]
 
     def set_up_scene(self, scene) -> None:
+        """
+        setting up our simulation world
+        """
+        # first create a single franka
         self.get_franka()
+        # first create a single cabinet
         self.get_cabinet()
+
+        # first create a number of cube
         if self.num_props > 0:
             self.get_props()
 
+        # call the parent class to clone the single environment
         super().set_up_scene(scene, filter_collisions=False)
 
-        self._frankas = FrankaView(prim_paths_expr="/World/envs/.*/franka", name="franka_view")
-        self._cabinets = CabinetView(prim_paths_expr="/World/envs/.*/cabinet", name="cabinet_view")
-
+        # construct an FrankaView to hold our collection of environments
+        self._frankas = FrankaView(
+            prim_paths_expr="/World/envs/.*/franka",
+            name="franka_view"
+        )
+        # register the FrankaView object to the world, so that it can be initialized
         scene.add(self._frankas)
         scene.add(self._frankas._hands)
         scene.add(self._frankas._lfingers)
         scene.add(self._frankas._rfingers)
+
+        # construct an CabinetView to hold our collection of environments
+        self._cabinets = CabinetView(
+            prim_paths_expr="/World/envs/.*/cabinet",
+            name="cabinet_view"
+        )
+        # register the CabinetView object to the world, so that it can be initialized
         scene.add(self._cabinets)
         scene.add(self._cabinets._drawers)
 
+        # construct an CabinetView to hold our collection of environments
         if self.num_props > 0:
             self._props = RigidPrimView(
-                prim_paths_expr="/World/envs/.*/prop/.*", name="prop_view", reset_xform_properties=False
+                prim_paths_expr="/World/envs/.*/prop/.*",
+                name="prop_view",
+                reset_xform_properties=False
             )
+            # register the FrankaView object to the world, so that it can be initialized
             scene.add(self._props)
 
         self.init_data()
         return
 
-    def initialize_views(self, scene):
-        super().initialize_views(scene)
-        if scene.object_exists("franka_view"):
-            scene.remove_object("franka_view", registry_only=True)
-        if scene.object_exists("hands_view"):
-            scene.remove_object("hands_view", registry_only=True)
-        if scene.object_exists("lfingers_view"):
-            scene.remove_object("lfingers_view", registry_only=True)
-        if scene.object_exists("rfingers_view"):
-            scene.remove_object("rfingers_view", registry_only=True)
-        if scene.object_exists("cabinet_view"):
-            scene.remove_object("cabinet_view", registry_only=True)
-        if scene.object_exists("drawers_view"):
-            scene.remove_object("drawers_view", registry_only=True)
-        if scene.object_exists("prop_view"):
-            scene.remove_object("prop_view", registry_only=True)
-        self._frankas = FrankaView(prim_paths_expr="/World/envs/.*/franka", name="franka_view")
-        self._cabinets = CabinetView(prim_paths_expr="/World/envs/.*/cabinet", name="cabinet_view")
-
-        scene.add(self._frankas)
-        scene.add(self._frankas._hands)
-        scene.add(self._frankas._lfingers)
-        scene.add(self._frankas._rfingers)
-        scene.add(self._cabinets)
-        scene.add(self._cabinets._drawers)
-
-        if self.num_props > 0:
-            self._props = RigidPrimView(
-                prim_paths_expr="/World/envs/.*/prop/.*", name="prop_view", reset_xform_properties=False
-            )
-            scene.add(self._props)
-
-        self.init_data()
-
     def get_franka(self):
-        franka = Franka(prim_path=self.default_zero_env_path + "/franka", name="franka")
+        # add a single franka robot to the stage
+        franka = Franka(
+            prim_path=self.default_zero_env_path + "/franka",
+            name="franka"
+        )
+        # applies articulation settings from the task configuration yaml file
         self._sim_config.apply_articulation_settings(
-            "franka", get_prim_at_path(franka.prim_path), self._sim_config.parse_actor_config("franka")
+            "franka",
+            get_prim_at_path(franka.prim_path),
+            self._sim_config.parse_actor_config("franka")
         )
 
     def get_cabinet(self):
-        cabinet = Cabinet(self.default_zero_env_path + "/cabinet", name="cabinet")
+        # add a single cabinet to the stage
+        cabinet = Cabinet(
+            prim_path=self.default_zero_env_path + "/cabinet",
+            name="cabinet"
+        )
+        # applies articulation settings from the task configuration yaml file
         self._sim_config.apply_articulation_settings(
-            "cabinet", get_prim_at_path(cabinet.prim_path), self._sim_config.parse_actor_config("cabinet")
+            "cabinet",
+            get_prim_at_path(cabinet.prim_path),
+            self._sim_config.parse_actor_config("cabinet")
         )
 
     def get_props(self):
@@ -159,6 +176,7 @@ class FrankaCabinetTask(RLTask):
 
                 prop_count += 1
 
+        # add a single prop to the stage
         prop = DynamicCuboid(
             prim_path=self.default_zero_env_path + "/prop/prop_0",
             name="prop",
@@ -166,8 +184,11 @@ class FrankaCabinetTask(RLTask):
             size=prop_size,
             density=100.0,
         )
+        # applies articulation settings from the task configuration yaml file
         self._sim_config.apply_articulation_settings(
-            "prop", get_prim_at_path(prop.prim_path), self._sim_config.parse_actor_config("prop")
+            "prop",
+            get_prim_at_path(prop.prim_path),
+            self._sim_config.parse_actor_config("prop")
         )
 
         prop_paths = [f"{self.default_zero_env_path}/prop/prop_{j}" for j in range(self.num_props)]
@@ -177,6 +198,55 @@ class FrankaCabinetTask(RLTask):
             positions=np.array(prop_pos) + drawer_pos.numpy(),
             replicate_physics=False,
         )
+
+    def initialize_views(self, scene):
+        super().initialize_views(scene)
+        if scene.object_exists("franka_view"):
+            scene.remove_object("franka_view", registry_only=True)
+        if scene.object_exists("hands_view"):
+            scene.remove_object("hands_view", registry_only=True)
+        if scene.object_exists("lfingers_view"):
+            scene.remove_object("lfingers_view", registry_only=True)
+        if scene.object_exists("rfingers_view"):
+            scene.remove_object("rfingers_view", registry_only=True)
+        if scene.object_exists("cabinet_view"):
+            scene.remove_object("cabinet_view", registry_only=True)
+        if scene.object_exists("drawers_view"):
+            scene.remove_object("drawers_view", registry_only=True)
+        if scene.object_exists("prop_view"):
+            scene.remove_object("prop_view", registry_only=True)
+
+        # construct an FrankaView to hold our collection of environments
+        self._frankas = FrankaView(
+            prim_paths_expr="/World/envs/.*/franka",
+            name="franka_view"
+        )
+        # register the FrankaView object to the world, so that it can be initialized
+        scene.add(self._frankas)
+        scene.add(self._frankas._hands)
+        scene.add(self._frankas._lfingers)
+        scene.add(self._frankas._rfingers)
+
+        # construct an CabinetView to hold our collection of environments
+        self._cabinets = CabinetView(
+            prim_paths_expr="/World/envs/.*/cabinet",
+            name="cabinet_view"
+        )
+        # register the CabinetView object to the world, so that it can be initialized
+        scene.add(self._cabinets)
+        scene.add(self._cabinets._drawers)
+
+        # construct an CabinetView to hold our collection of environments
+        if self.num_props > 0:
+            self._props = RigidPrimView(
+                prim_paths_expr="/World/envs/.*/prop/.*",
+                name="prop_view",
+                reset_xform_properties=False
+            )
+            # register the FrankaView object to the world, so that it can be initialized
+            scene.add(self._props)
+
+        self.init_data()
 
     def init_data(self) -> None:
         def get_env_local_pose(env_pos, xformable, device):
@@ -248,71 +318,39 @@ class FrankaCabinetTask(RLTask):
 
         self.actions = torch.zeros((self._num_envs, self.num_actions), device=self._device)
 
-    def get_observations(self) -> dict:
-        hand_pos, hand_rot = self._frankas._hands.get_world_poses(clone=False)
-        drawer_pos, drawer_rot = self._cabinets._drawers.get_world_poses(clone=False)
-        franka_dof_pos = self._frankas.get_joint_positions(clone=False)
-        franka_dof_vel = self._frankas.get_joint_velocities(clone=False)
-        self.cabinet_dof_pos = self._cabinets.get_joint_positions(clone=False)
-        self.cabinet_dof_vel = self._cabinets.get_joint_velocities(clone=False)
-        self.franka_dof_pos = franka_dof_pos
-
-        (
-            self.franka_grasp_rot,
-            self.franka_grasp_pos,
-            self.drawer_grasp_rot,
-            self.drawer_grasp_pos,
-        ) = self.compute_grasp_transforms(
-            hand_rot,
-            hand_pos,
-            self.franka_local_grasp_rot,
-            self.franka_local_grasp_pos,
-            drawer_rot,
-            drawer_pos,
-            self.drawer_local_grasp_rot,
-            self.drawer_local_grasp_pos,
+    def post_reset(self):
+        """
+        automatically triggered by the Isaac Sim framework at the very beginning of simulation
+        """
+        # retrieve franka joint indices
+        self.num_franka_dofs = self._frankas.num_dof
+        self.franka_dof_pos = torch.zeros(
+            (self.num_envs, self.num_franka_dofs),
+            device=self._device
+        )
+        dof_limits = self._frankas.get_dof_limits()
+        self.franka_dof_lower_limits = dof_limits[0, :, 0].to(device=self._device)
+        self.franka_dof_upper_limits = dof_limits[0, :, 1].to(device=self._device)
+        self.franka_dof_speed_scales = torch.ones_like(self.franka_dof_lower_limits)
+        self.franka_dof_speed_scales[self._frankas.gripper_indices] = 0.1
+        self.franka_dof_targets = torch.zeros(
+            (self._num_envs, self.num_franka_dofs), dtype=torch.float, device=self._device
         )
 
-        self.franka_lfinger_pos, self.franka_lfinger_rot = self._frankas._lfingers.get_world_poses(clone=False)
-        self.franka_rfinger_pos, self.franka_rfinger_rot = self._frankas._lfingers.get_world_poses(clone=False)
+        if self.num_props > 0:
+            self.default_prop_pos, self.default_prop_rot = self._props.get_world_poses()
+            self.prop_indices = torch.arange(self._num_envs * self.num_props, device=self._device).view(
+                self._num_envs, self.num_props
+            )
 
-        dof_pos_scaled = (
-            2.0
-            * (franka_dof_pos - self.franka_dof_lower_limits)
-            / (self.franka_dof_upper_limits - self.franka_dof_lower_limits)
-            - 1.0
-        )
-        to_target = self.drawer_grasp_pos - self.franka_grasp_pos
-        self.obs_buf = torch.cat(
-            (
-                dof_pos_scaled,
-                franka_dof_vel * self.dof_vel_scale,
-                to_target,
-                self.cabinet_dof_pos[:, 3].unsqueeze(-1),
-                self.cabinet_dof_vel[:, 3].unsqueeze(-1),
-            ),
-            dim=-1,
-        )
-
-        observations = {self._frankas.name: {"obs_buf": self.obs_buf}}
-        return observations
-
-    def pre_physics_step(self, actions) -> None:
-        if not self._env._world.is_playing():
-            return
-
-        reset_env_ids = self.reset_buf.nonzero(as_tuple=False).squeeze(-1)
-        if len(reset_env_ids) > 0:
-            self.reset_idx(reset_env_ids)
-
-        self.actions = actions.clone().to(self._device)
-        targets = self.franka_dof_targets + self.franka_dof_speed_scales * self.dt * self.actions * self.action_scale
-        self.franka_dof_targets[:] = tensor_clamp(targets, self.franka_dof_lower_limits, self.franka_dof_upper_limits)
-        env_ids_int32 = torch.arange(self._frankas.count, dtype=torch.int32, device=self._device)
-
-        self._frankas.set_joint_position_targets(self.franka_dof_targets, indices=env_ids_int32)
+        # randomize all envs
+        indices = torch.arange(self._num_envs, dtype=torch.int64, device=self._device)
+        self.reset_idx(indices)
 
     def reset_idx(self, env_ids):
+        """
+        randomized state to ensure that the RL policy can learn to perform the task from arbitrary starting states
+        """
         indices = env_ids.to(dtype=torch.int32)
         num_indices = len(indices)
 
@@ -349,34 +387,116 @@ class FrankaCabinetTask(RLTask):
         self._frankas.set_joint_positions(dof_pos, indices=indices)
         self._frankas.set_joint_velocities(dof_vel, indices=indices)
 
-        # bookkeeping
+        # reset the reset buffer and progress buffer after applying reset
         self.reset_buf[env_ids] = 0
         self.progress_buf[env_ids] = 0
 
-    def post_reset(self):
+    def pre_physics_step(self, actions) -> None:
+        """
+        reset the reset buffer and progress buffer to zeros for the corresponding environments
+        """
+        # make sure simulation has not been stopped from the UI
+        if not self._env._world.is_playing():
+            return
 
-        self.num_franka_dofs = self._frankas.num_dof
-        self.franka_dof_pos = torch.zeros((self.num_envs, self.num_franka_dofs), device=self._device)
-        dof_limits = self._frankas.get_dof_limits()
-        self.franka_dof_lower_limits = dof_limits[0, :, 0].to(device=self._device)
-        self.franka_dof_upper_limits = dof_limits[0, :, 1].to(device=self._device)
-        self.franka_dof_speed_scales = torch.ones_like(self.franka_dof_lower_limits)
-        self.franka_dof_speed_scales[self._frankas.gripper_indices] = 0.1
-        self.franka_dof_targets = torch.zeros(
-            (self._num_envs, self.num_franka_dofs), dtype=torch.float, device=self._device
+        # extract environment indices that need reset and reset them
+        reset_env_ids = self.reset_buf.nonzero(as_tuple=False).squeeze(-1)
+        if len(reset_env_ids) > 0:
+            self.reset_idx(reset_env_ids)
+
+        # make sure actions buffer is on the same device as the simulation
+        self.actions = actions.clone().to(self._device)
+
+        # apply actions to all of the environments
+        targets = self.franka_dof_targets + self.franka_dof_speed_scales * self.dt * self.actions * self.action_scale
+        self.franka_dof_targets[:] = tensor_clamp(targets, self.franka_dof_lower_limits, self.franka_dof_upper_limits)
+        env_ids_int32 = torch.arange(self._frankas.count, dtype=torch.int32, device=self._device)
+
+        self._frankas.set_joint_position_targets(self.franka_dof_targets, indices=env_ids_int32)
+
+    def get_observations(self) -> dict:
+        """
+        implement our observations
+        """
+        # retrieve franka hand joint positions and rotations
+        hand_pos, hand_rot = self._frankas._hands.get_world_poses(clone=False)
+        # retrieve cabinet drawer joint positions and rotations
+        drawer_pos, drawer_rot = self._cabinets._drawers.get_world_poses(clone=False)
+        # retrieve franka joint positions and velocities
+        franka_dof_pos = self._frankas.get_joint_positions(clone=False)
+        franka_dof_vel = self._frankas.get_joint_velocities(clone=False)
+        # retrieve cabinet joint positions and velocities
+        self.cabinet_dof_pos = self._cabinets.get_joint_positions(clone=False)
+        self.cabinet_dof_vel = self._cabinets.get_joint_velocities(clone=False)
+        self.franka_dof_pos = franka_dof_pos
+
+        self.franka_grasp_rot, self.franka_grasp_pos, self.drawer_grasp_rot, self.drawer_grasp_pos = self.compute_grasp_transforms(
+            hand_rot,
+            hand_pos,
+            self.franka_local_grasp_rot,
+            self.franka_local_grasp_pos,
+            drawer_rot,
+            drawer_pos,
+            self.drawer_local_grasp_rot,
+            self.drawer_local_grasp_pos,
         )
 
-        if self.num_props > 0:
-            self.default_prop_pos, self.default_prop_rot = self._props.get_world_poses()
-            self.prop_indices = torch.arange(self._num_envs * self.num_props, device=self._device).view(
-                self._num_envs, self.num_props
-            )
+        # retrieve franka left finger joint positions and rotations
+        self.franka_lfinger_pos, self.franka_lfinger_rot = self._frankas._lfingers.get_world_poses(clone=False)
+        # retrieve franka right finger joint positions and rotations
+        self.franka_rfinger_pos, self.franka_rfinger_rot = self._frankas._rfingers.get_world_poses(clone=False)
 
-        # randomize all envs
-        indices = torch.arange(self._num_envs, dtype=torch.int64, device=self._device)
-        self.reset_idx(indices)
+        dof_pos_scaled = (
+            2.0
+            * (franka_dof_pos - self.franka_dof_lower_limits)
+            / (self.franka_dof_upper_limits - self.franka_dof_lower_limits)
+            - 1.0
+        )
+        to_target = self.drawer_grasp_pos - self.franka_grasp_pos
+        self.obs_buf = torch.cat(
+            (
+                dof_pos_scaled,
+                franka_dof_vel * self.dof_vel_scale,
+                to_target,
+                self.cabinet_dof_pos[:, 3].unsqueeze(-1),
+                self.cabinet_dof_vel[:, 3].unsqueeze(-1),
+            ),
+            dim=-1,
+        )
+
+        # construct the observations dictionary and return
+        observations = {
+            self._frankas.name: {
+                "obs_buf": self.obs_buf
+            }
+        }
+        return observations
+
+    def compute_grasp_transforms(
+        self,
+        hand_rot,
+        hand_pos,
+        franka_local_grasp_rot,
+        franka_local_grasp_pos,
+        drawer_rot,
+        drawer_pos,
+        drawer_local_grasp_rot,
+        drawer_local_grasp_pos,
+    ):
+
+        global_franka_rot, global_franka_pos = tf_combine(
+            hand_rot, hand_pos, franka_local_grasp_rot, franka_local_grasp_pos
+        )
+        global_drawer_rot, global_drawer_pos = tf_combine(
+            drawer_rot, drawer_pos, drawer_local_grasp_rot, drawer_local_grasp_pos
+        )
+
+        return global_franka_rot, global_franka_pos, global_drawer_rot, global_drawer_pos
 
     def calculate_metrics(self) -> None:
+        """
+        compute the reward for the task
+        """
         self.rew_buf[:] = self.compute_franka_reward(
             self.reset_buf,
             self.progress_buf,
@@ -404,34 +524,6 @@ class FrankaCabinetTask(RLTask):
             self.franka_dof_pos,
             self.finger_close_reward_scale,
         )
-
-    def is_done(self) -> None:
-        # reset if drawer is open or max length reached
-        self.reset_buf = torch.where(self.cabinet_dof_pos[:, 3] > 0.39, torch.ones_like(self.reset_buf), self.reset_buf)
-        self.reset_buf = torch.where(
-            self.progress_buf >= self._max_episode_length - 1, torch.ones_like(self.reset_buf), self.reset_buf
-        )
-
-    def compute_grasp_transforms(
-        self,
-        hand_rot,
-        hand_pos,
-        franka_local_grasp_rot,
-        franka_local_grasp_pos,
-        drawer_rot,
-        drawer_pos,
-        drawer_local_grasp_rot,
-        drawer_local_grasp_pos,
-    ):
-
-        global_franka_rot, global_franka_pos = tf_combine(
-            hand_rot, hand_pos, franka_local_grasp_rot, franka_local_grasp_pos
-        )
-        global_drawer_rot, global_drawer_pos = tf_combine(
-            drawer_rot, drawer_pos, drawer_local_grasp_rot, drawer_local_grasp_pos
-        )
-
-        return global_franka_rot, global_franka_pos, global_drawer_rot, global_drawer_pos
 
     def compute_franka_reward(
         self,
@@ -463,7 +555,7 @@ class FrankaCabinetTask(RLTask):
     ):
         # type: (Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, int, float, float, float, float, float, float, float, float, Tensor) -> Tuple[Tensor, Tensor]
 
-        # distance from hand to the drawer
+        # reward for distance from hand to the drawer
         d = torch.norm(franka_grasp_pos - drawer_grasp_pos, p=2, dim=-1)
         dist_reward = 1.0 / (1.0 + d**2)
         dist_reward *= dist_reward
@@ -474,12 +566,15 @@ class FrankaCabinetTask(RLTask):
         axis3 = tf_vector(franka_grasp_rot, gripper_up_axis)
         axis4 = tf_vector(drawer_grasp_rot, drawer_up_axis)
 
+        # alignment of forward axis for gripper
         dot1 = (
             torch.bmm(axis1.view(num_envs, 1, 3), axis2.view(num_envs, 3, 1)).squeeze(-1).squeeze(-1)
-        )  # alignment of forward axis for gripper
+        )
+        # alignment of up axis for gripper
         dot2 = (
             torch.bmm(axis3.view(num_envs, 1, 3), axis4.view(num_envs, 3, 1)).squeeze(-1).squeeze(-1)
-        )  # alignment of up axis for gripper
+        )
+
         # reward for matching the orientation of the hand to the drawer (fingers wrapped)
         rot_reward = 0.5 * (torch.sign(dot1) * dot1**2 + torch.sign(dot2) * dot2**2)
 
@@ -492,6 +587,7 @@ class FrankaCabinetTask(RLTask):
             ),
             around_handle_reward,
         )
+
         # reward for distance of each finger from the drawer
         finger_dist_reward = torch.zeros_like(rot_reward)
         lfinger_dist = torch.abs(franka_lfinger_pos[:, 2] - drawer_grasp_pos[:, 2])
@@ -506,6 +602,7 @@ class FrankaCabinetTask(RLTask):
             finger_dist_reward,
         )
 
+        # reward for finger close from the drawer
         finger_close_reward = torch.zeros_like(rot_reward)
         finger_close_reward = torch.where(
             d <= 0.03, (0.04 - joint_positions[:, 7]) + (0.04 - joint_positions[:, 8]), finger_close_reward
@@ -517,6 +614,7 @@ class FrankaCabinetTask(RLTask):
         # how far the cabinet has been opened out
         open_reward = cabinet_dof_pos[:, 3] * around_handle_reward + cabinet_dof_pos[:, 3]  # drawer_top_joint
 
+        # total reward function
         rewards = (
             dist_reward_scale * dist_reward
             + rot_reward_scale * rot_reward
@@ -539,3 +637,10 @@ class FrankaCabinetTask(RLTask):
         #                       torch.ones_like(rewards) * -1, rewards)
 
         return rewards
+
+    def is_done(self) -> None:
+        # reset if drawer is open or max length reached
+        self.reset_buf = torch.where(self.cabinet_dof_pos[:, 3] > 0.39, torch.ones_like(self.reset_buf), self.reset_buf)
+        self.reset_buf = torch.where(
+            self.progress_buf >= self._max_episode_length - 1, torch.ones_like(self.reset_buf), self.reset_buf
+        )
